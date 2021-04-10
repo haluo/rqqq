@@ -49,7 +49,7 @@ pub struct SubArg<'a>{
 pub struct PubArg<'a>{
     subject:&'a str,
     size_buf:&'a str,//1024 字符串形式，避免后续再次转换
-    size:i64,//1024 整数形式
+    size:usize,//1024 整数形式
     msg:&'a [u8],
 }
 pub enum ParserResult<'a>{
@@ -206,10 +206,66 @@ impl Parser{
         Ok(())
     }
     fn process_sub(&self)->Result<ParserResult>{
-        return Err(NError::new(ERROR_PARSE))  
+        let buf = &self.buf[..self.arg_len];
+        let ss = unsafe{std::str::from_utf8_unchecked(buf)};
+        let mut  arg_buf = ["";3];
+        let mut  arg_len = 0;
+        for s in  ss.split(' '){
+            if s.len() ==0 {
+                continue;
+            }
+            if arg_len>=3{
+                parse_error!();
+            }
+            arg_buf[arg_len] = s;
+            arg_len+=1;
+        }
+        let mut sub_arg = SubArg{
+            subject: arg_buf[0],
+            sid: "",
+            queue: None,
+
+        };
+        match arg_len {
+            2 =>{
+                sub_arg.sid = arg_buf[1];
+            },
+            3 =>{
+                sub_arg.sid = arg_buf[2];
+                sub_arg.queue = Some(arg_buf[1]);
+            },
+            _ =>{
+                parse_error!();
+            }
+        }
+        Ok(ParserResult::Sub(sub_arg))
     }
     fn process_msg(&self) -> Result<ParserResult> {
-        parse_error!();
+        let msg = if self.msg_buf.is_some(){
+            self.msg_buf.as_ref().unwrap().as_slice()
+        }else{
+            &self.buf[self.arg_len..self.arg_len + self.msg_total_len]
+        };
+        let mut arg_buf = [""; 2];
+        let mut arg_len = 0;
+        let ss = unsafe { std::str::from_utf8_unchecked(&self.buf[0..self.arg_len]) };
+        for s in ss.split(' ') {
+            if s.len() == 0 {
+                continue;
+            }
+            if arg_len >= 2 {
+                parse_error!()
+            }
+            arg_buf[arg_len] = s;
+            arg_len += 1;
+        }
+        let pub_arg = PubArg {
+            subject: arg_buf[0],
+            size_buf: arg_buf[1],
+            size: self.msg_total_len,
+            msg,
+        };
+        Ok(ParserResult::Pub(pub_arg))
     }
     //从接收到的pub消息中提前解析出来消息的长度字符串
     fn get_message_size(&self) -> Result<usize> {
